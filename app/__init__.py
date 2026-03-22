@@ -1,0 +1,1 @@
+"""Code Analyzer FastAPI application."""
