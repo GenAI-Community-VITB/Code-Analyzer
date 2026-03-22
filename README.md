@@ -33,38 +33,44 @@ The tool solves a common developer problem: rapidly assessing unfamiliar codebas
 
 The system follows a sequential pipeline with two parallel stages internally:
 
-```
-User Input (URL)
-      |
-      v
-URL Validation and Parsing (url_parser.py)
-      |
-      v
-Shallow Git Clone (git_clone.py)
-      |
-      v
-File Discovery and Filtering (file_filter.py)
-      |
-      v
-Static Analysis - parallel across all files (static_analyzer.py)
-      |
-      v
-Cross-file Aggregation and Duplicate Detection (static_analyzer.py)
-      |
-      v
-Batched LLM Analysis - concurrent batches (llm_service.py)
-      |
-      v
-Repository-level Design Assessment (llm_service.py)
-      |
-      v
-Weighted Scoring (scoring.py)
-      |
-      v
-Report Generation and Persistence (report_generator.py)
-      |
-      v
-Clone Cleanup and Response
+```mermaid
+flowchart TD
+    A([User Input\nRepository URL]) --> B[URL Validation & Parsing\nurl_parser.py]
+    B --> C{Valid URL?}
+    C -- No --> ERR1([InvalidRepositoryURLError\nHTTP 400])
+    C -- Yes --> D[Shallow Git Clone\ngit_clone.py\ngit clone --depth 1 --single-branch]
+    D --> E{Clone Successful?}
+    E -- Private / Not Found --> ERR2([RepositoryInaccessibleError\nHTTP 403])
+    E -- Timeout / Other --> ERR3([CloneFailedError\nHTTP 502])
+    E -- Yes --> F[File Discovery & Filtering\nfile_filter.py\nExtension whitelist · Size cap · Priority sort]
+
+    F --> G{Analyzable\nfiles found?}
+    G -- No --> ERR4([EmptyRepositoryError\nHTTP 404])
+    G -- Yes --> H
+
+    subgraph H [Parallel Static Analysis — asyncio.gather]
+        H1[Security Scan\nSecrets · Unsafe calls · Injection · SSL flags]
+        H2[Code Quality\nNesting · Magic numbers · Long lines · Imports]
+        H3[Design Flags\nLong functions · SRP violations]
+        H4[Naming · Docs · Tests · Performance]
+    end
+
+    H --> I[Cross-file Aggregation\nDuplicate detection via Jaccard similarity\nManifest & README presence checks]
+    I --> J{GEMINI_API_KEY\nconfigured?}
+
+    J -- No --> K2[Static-only insights\nLLM fields skipped gracefully]
+    J -- Yes --> K
+
+    subgraph K [Batched LLM Analysis — up to 2 concurrent batches of 8]
+        K1[Per-file Review\nSummary · Issues · Suggestions\ngemini-2.5-flash]
+    end
+
+    K --> L[Repository-level Design Assessment\nStructure · Layering · Cohesion · Risks\ngemini-2.5-flash]
+    K2 --> M
+    L --> M[Weighted Scoring\nscoring.py\n8 dimensions → overall 0–100 score]
+    M --> N[Report Generation\nreport_generator.py\nJSON persisted to reports/]
+    N --> O[Clone Teardown\ngit_clone.py · remove_clone]
+    O --> P([Structured JSON Response\nAnalyzeResponse])
 ```
 
 The pipeline combines two complementary approaches:
