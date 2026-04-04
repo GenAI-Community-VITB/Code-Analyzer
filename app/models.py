@@ -46,6 +46,9 @@ class AnalyzeResponse(BaseModel):
     design_summary: str = ""
     file_insights: list[FileLLMInsight]
     repo_level_insights: str = ""
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    estimated_cost_usd: float = 0.0
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

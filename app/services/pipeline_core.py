@@ -31,6 +31,7 @@ async def run_hybrid_analysis_pipeline(
     *,
     default_branch: str | None = None,
     analysis_mode: str = "git_clone",
+    depth: str = "full",
 ) -> AnalyzeResponse:
     """
     Run static analysis (parallel), batched LLM, scoring, and write report.
@@ -69,101 +70,103 @@ async def run_hybrid_analysis_pipeline(
     score = compute_scores(agg)
     issues = flatten_issues(agg)
 
-    gemini = GeminiAnalyzer(s)
-    llm_targets = paths_ok[: s.max_files_for_llm]
-
-    batch_size = max(1, min(s.llm_batch_size, 12))
-    chunks = [llm_targets[i : i + batch_size] for i in range(0, len(llm_targets), batch_size)]
-
-    batch_sem = asyncio.Semaphore(max(1, s.llm_concurrent_batches))
-
-    async def process_llm_chunk(chunk: list[str]) -> list[FileLLMInsight]:
-        out: list[FileLLMInsight] = []
-        if not chunk:
-            return out
-        if not gemini.enabled:
-            for path in chunk:
-                out.append(
-                    FileLLMInsight(
-                        path=path,
-                        summary="LLM analysis skipped (GEMINI_API_KEY not configured).",
-                        issues=[],
-                        suggestions=[],
-                    ),
-                )
-            return out
-
-        async with batch_sem:
-            batch_inputs: list[tuple[str, str, str]] = []
-            for path in chunk:
-                content = raw_contents.get(path, "")[: s.max_chars_per_file_llm]
-                batch_inputs.append((path, detect_language(path), content))
-            try:
-                batch_out = await gemini.analyze_files_batch(batch_inputs)
-            except Exception as e:
-                logger.warning("Batch LLM failed (%s); falling back per file: %s", chunk[0], e)
-                batch_out = []
-
-            by_path = {str(d.get("path")): d for d in batch_out if isinstance(d, dict)}
-
-            for idx, (path, lang, _content) in enumerate(batch_inputs):
-                data = by_path.get(path)
-                if not data and idx < len(batch_out) and isinstance(batch_out[idx], dict):
-                    data = batch_out[idx]
-                if not data:
-                    try:
-                        data = await gemini.analyze_file(
-                            path,
-                            lang,
-                            raw_contents.get(path, "")[: s.max_chars_per_file_llm],
-                        )
-                    except Exception as e2:
-                        logger.error("LLM file analysis failed for %s: %s", path, e2)
-                        out.append(
-                            FileLLMInsight(
-                                path=path,
-                                summary="LLM analysis failed for this file.",
-                                issues=[str(e2)],
-                                suggestions=[],
-                            ),
-                        )
-                        continue
-                out.append(insights_from_llm_dict(path, data))
-        return out
-
-    chunk_results = await asyncio.gather(*[process_llm_chunk(c) for c in chunks])
-    file_insights: list[FileLLMInsight] = []
-    for part in chunk_results:
-        file_insights.extend(part)
-
-    llm_summaries: list[dict[str, Any]] = [
-        {
-            "path": fi.path,
-            "summary": fi.summary,
-            "issues": fi.issues[:5],
-            "suggestions": fi.suggestions[:5],
-        }
-        for fi in file_insights
-    ]
-
-    static_sample = issues[:40]
-    design_summary = ""
-    repo_level = ""
-
-    if gemini.enabled:
-        try:
-            repo_json = await gemini.analyze_repository_design(owner, repo_name, llm_summaries, static_sample)
-            design_summary = str(repo_json.get("design_summary") or "").strip()
-            repo_level = design_summary
-        except Exception as e:
-            logger.error("LLM design summary failed: %s", e)
-            design_summary = f"Design assessment unavailable: {e}"
-            repo_level = design_summary
+    if depth == "basic":
+        file_insights = []
+        llm_summaries = []
+        repo_level = "Skipped (basic mode)"
+        design_summary = repo_level
     else:
-        design_summary = (
-            "Set GEMINI_API_KEY for a short automated design description; scores and findings use static analysis."
-        )
-        repo_level = design_summary
+        gemini = GeminiAnalyzer(s)
+        llm_targets = paths_ok[: s.max_files_for_llm]
+
+        batch_size = max(1, min(s.llm_batch_size, 12))
+        chunks = [llm_targets[i : i + batch_size] for i in range(0, len(llm_targets), batch_size)]
+
+        batch_sem = asyncio.Semaphore(max(1, s.llm_concurrent_batches))
+
+        async def process_llm_chunk(chunk: list[str]) -> list[FileLLMInsight]:
+            out: list[FileLLMInsight] = []
+            if not chunk:
+                return out
+            if not gemini.enabled:
+                for path in chunk:
+                    out.append(
+                        FileLLMInsight(
+                            path=path,
+                            summary="LLM analysis skipped (GEMINI_API_KEY not configured).",
+                            issues=[],
+                            suggestions=[],
+                        ),
+                    )
+                return out
+
+            async with batch_sem:
+                batch_inputs: list[tuple[str, str, str]] = []
+                for path in chunk:
+                    content = raw_contents.get(path, "")[: s.max_chars_per_file_llm]
+                    batch_inputs.append((path, detect_language(path), content))
+                try:
+                    batch_out = await gemini.analyze_files_batch(batch_inputs)
+                except Exception as e:
+                    logger.warning("Batch LLM failed (%s); falling back per file: %s", chunk[0], e)
+                    batch_out = []
+
+                by_path = {str(d.get("path")): d for d in batch_out if isinstance(d, dict)}
+
+                for idx, (path, lang, _content) in enumerate(batch_inputs):
+                    data = by_path.get(path)
+                    if not data and idx < len(batch_out) and isinstance(batch_out[idx], dict):
+                        data = batch_out[idx]
+                    if not data:
+                        try:
+                            data = await gemini.analyze_file(
+                                path,
+                                lang,
+                                raw_contents.get(path, "")[: s.max_chars_per_file_llm],
+                            )
+                        except Exception as e2:
+                            logger.error("LLM file analysis failed for %s: %s", path, e2)
+                            out.append(
+                                FileLLMInsight(
+                                    path=path,
+                                    summary="LLM analysis failed for this file.",
+                                    issues=[str(e2)],
+                                    suggestions=[],
+                                ),
+                            )
+                            continue
+                    out.append(insights_from_llm_dict(path, data))
+            return out
+
+        chunk_results = await asyncio.gather(*[process_llm_chunk(c) for c in chunks])
+        file_insights: list[FileLLMInsight] = []
+        for part in chunk_results:
+            file_insights.extend(part)
+
+        llm_summaries: list[dict[str, Any]] = [
+            {
+                "path": fi.path,
+                "summary": fi.summary,
+                "issues": fi.issues[:5],
+                "suggestions": fi.suggestions[:5],
+            }
+            for fi in file_insights
+        ]
+
+        if gemini.enabled:
+            try:
+                repo_json = await gemini.analyze_repository_design(owner, repo_name, llm_summaries, static_sample)
+                design_summary = str(repo_json.get("design_summary") or "").strip()
+                repo_level = design_summary
+            except Exception as e:
+                logger.error("LLM design summary failed: %s", e)
+                design_summary = f"Design assessment unavailable: {e}"
+                repo_level = design_summary
+        else:
+            design_summary = (
+                "Set GEMINI_API_KEY for a short automated design description; scores and findings use static analysis."
+            )
+            repo_level = design_summary
 
     report_name = safe_report_filename(repo_name)
     report_path = s.reports_dir / report_name
@@ -171,12 +174,17 @@ async def run_hybrid_analysis_pipeline(
     meta: dict[str, Any] = {
         "files_analyzed": len(paths_ok),
         "files_considered": len(raw_contents),
-        "llm_enabled": gemini.enabled,
+        "llm_enabled": False if depth == "basic" else gemini.enabled,
         "analysis_mode": analysis_mode,
+        "analysis_depth": depth,
     }
     if default_branch is not None:
         meta["default_branch"] = default_branch
 
+    input_tk = 0 if depth == "basic" else gemini.total_input_tokens
+    output_tk = 0 if depth == "basic" else gemini.total_output_tokens
+    cost = (input_tk / 1_000_000 * 0.075) + (output_tk / 1_000_000 * 0.30)
+        
     response = AnalyzeResponse(
         repository=f"{owner}/{repo_name}",
         owner=owner,
@@ -193,6 +201,9 @@ async def run_hybrid_analysis_pipeline(
         design_summary=design_summary,
         file_insights=file_insights,
         repo_level_insights=repo_level,
+        total_input_tokens=input_tk,
+        total_output_tokens=output_tk,
+        estimated_cost_usd=round(cost, 5),
         metadata=meta,
     )
 

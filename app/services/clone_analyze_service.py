@@ -23,7 +23,7 @@ def _clone_url(owner: str, repo: str) -> str:
     return f"https://github.com/{owner}/{repo}.git"
 
 
-async def analyze_repository_via_clone(repo_url: str, settings: Settings | None = None) -> AnalyzeResponse:
+async def analyze_repository_via_clone(repo_url: str, settings: Settings | None = None, depth: str = "full") -> AnalyzeResponse:
     """
     Shallow clone, analyze up to max_files_clone_analysis files, delete clone in all cases.
     """
@@ -80,6 +80,7 @@ async def analyze_repository_via_clone(repo_url: str, settings: Settings | None 
             s,
             default_branch=None,
             analysis_mode="git_clone",
+            depth=depth,
         )
     finally:
         gc.collect()

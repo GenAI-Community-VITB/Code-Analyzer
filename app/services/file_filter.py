@@ -23,6 +23,10 @@ _EXCLUDED_NAME_PARTS = (
     ".chunk.",
 )
 
+_FRONTEND_FOLDERS = frozenset({
+    "ui", "public", "static", "assets", "images", "videos", "frontend", "client"
+})
+
 _IMAGE_EXTENSIONS = frozenset({
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp",
 })
@@ -52,6 +56,10 @@ def should_analyze_path(path: str, size_bytes: int | None, max_bytes: int) -> bo
     if suffix in _FRONTEND_HEAVY:
         return False
     if suffix in _IMAGE_EXTENSIONS:
+        return False
+
+    parts_lower = [p.lower() for p in PurePosixPath(normalized).parts]
+    if any(f in parts_lower for f in _FRONTEND_FOLDERS):
         return False
 
     for part in _EXCLUDED_NAME_PARTS:
@@ -100,11 +108,31 @@ def clone_priority_sort_key(path: str) -> tuple[int, int, str]:
     Prefer core backend paths (src/, app/, backend/, services/), then other code, then markdown.
     """
     p = path.replace("\\", "/").lower()
-    is_md = p.endswith(".md")
-    doc_rank = 2 if is_md else 0
-    core_markers = ("/src/", "/app/", "/backend/", "/services/")
-    in_core = any(m in p for m in core_markers) or p.startswith(
-        ("src/", "app/", "backend/", "services/"),
-    )
-    core_rank = 0 if in_core else 1
-    return (doc_rank, core_rank, path)
+    
+    # 0 = highest priority (entry points)
+    # 1 = core logic
+    # 2 = config
+    # 3 = generic code
+    # 4 = markdown/docs
+    
+    name = PurePosixPath(path).name.lower()
+    if name in ("main.py", "app.js", "server.ts", "main.go", "index.js", "index.ts"):
+        rank = 0
+    else:
+        core_markers = ("/src/", "/app/", "/backend/", "/services/", "/core/")
+        in_core = any(m in p for m in core_markers) or p.startswith(
+            ("src/", "app/", "backend/", "services/", "core/"),
+        )
+        is_config = name in ("dockerfile", "docker-compose.yml", "package.json", "requirements.txt", "go.mod") or name.endswith((".yml", ".yaml", ".toml"))
+        is_md = p.endswith(".md")
+        
+        if in_core:
+            rank = 1
+        elif is_config:
+            rank = 2
+        elif is_md:
+            rank = 4
+        else:
+            rank = 3
+            
+    return (rank, len(p.split("/")), path)

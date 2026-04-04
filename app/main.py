@@ -7,6 +7,7 @@ import sys
 
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
+from typing import Literal
 
 from app.exceptions import (
     AnalyzerError,
@@ -40,10 +41,11 @@ async def health() -> dict[str, str]:
 @app.get("/analyze")
 async def analyze(
     repo_url: str = Query(..., min_length=8, description="https://github.com/owner/repository"),
+    depth: Literal["full", "basic"] = Query("full", description="full or basic mode"),
 ):
-    logger.info("Analyze (clone) repo_url=%s", repo_url)
+    logger.info("Analyze (clone) repo_url=%s depth=%s", repo_url, depth)
     try:
-        result = await analyze_repository_via_clone(repo_url)
+        result = await analyze_repository_via_clone(repo_url, depth=depth)
         logger.info("Done: %s", result.repository)
         return result.model_dump()
     except InvalidRepositoryURLError as e:

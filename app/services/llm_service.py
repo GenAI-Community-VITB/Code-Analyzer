@@ -27,6 +27,8 @@ class GeminiAnalyzer:
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
         self._model = None
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
         if self._settings.gemini_api_key:
             genai.configure(api_key=self._settings.gemini_api_key)
             self._model = genai.GenerativeModel(self._settings.gemini_model)
@@ -50,8 +52,12 @@ class GeminiAnalyzer:
         )
 
         def _call() -> str:
+            in_tokens = len(prompt) // 4
+            self.total_input_tokens += in_tokens
             resp = self._model.generate_content(prompt)
-            return _gemini_response_text(resp)
+            txt = _gemini_response_text(resp)
+            self.total_output_tokens += len(txt) // 4
+            return txt
 
         raw = await asyncio.to_thread(_call)
         return _parse_json_block(raw)
@@ -79,8 +85,12 @@ class GeminiAnalyzer:
         )
 
         def _call() -> str:
+            in_tokens = len(prompt) // 4
+            self.total_input_tokens += in_tokens
             resp = self._model.generate_content(prompt)
-            return _gemini_response_text(resp)
+            txt = _gemini_response_text(resp)
+            self.total_output_tokens += len(txt) // 4
+            return txt
 
         raw = await asyncio.to_thread(_call)
         return _parse_json_array(raw)
@@ -114,8 +124,12 @@ class GeminiAnalyzer:
         )
 
         def _call() -> str:
+            in_tokens = len(prompt) // 4
+            self.total_input_tokens += in_tokens
             resp = self._model.generate_content(prompt)
-            return _gemini_response_text(resp)
+            txt = _gemini_response_text(resp)
+            self.total_output_tokens += len(txt) // 4
+            return txt
 
         raw = await asyncio.to_thread(_call)
         return _parse_json_block(raw)

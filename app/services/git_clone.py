@@ -45,7 +45,7 @@ def shallow_clone(repo_url: str, dest: Path, timeout_seconds: float) -> None:
         remove_clone(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = ["git", "clone", "--depth", "1", "--single-branch", repo_url, str(dest)]
+    cmd = ["git", "clone", "--depth", "1", "--single-branch", "--no-tags", repo_url, str(dest)]
     logger.info("Starting shallow clone: %s -> %s", repo_url, dest)
     try:
         proc = subprocess.run(
