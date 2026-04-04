@@ -17,14 +17,14 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
 
     max_file_bytes: int = 1_048_576  # 1 MB
-    max_files_for_llm: int = 40
+    max_files_for_llm: int = 150
     max_chars_per_file_llm: int = 8000
     llm_request_timeout_seconds: float = 120.0
 
     reports_dir: Path = Field(default=Path("reports"))
     clone_work_dir: Path = Field(default=Path("temp_repos"))
     git_clone_timeout_seconds: float = 600.0
-    max_files_clone_analysis: int = 120
+    max_files_clone_analysis: int = 150
     llm_batch_size: int = 8
     llm_concurrent_batches: int = 2
 

@@ -46,12 +46,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Debug logging",
     )
+    parser.add_argument(
+        "--basic",
+        action="store_true",
+        help="Run in basic mode (static analysis only, no LLM)",
+    )
     args = parser.parse_args(argv)
     _setup_logging(args.verbose)
     logger = logging.getLogger("app.cli")
 
     async def _run() -> None:
-        result = await analyze_repository_via_clone(args.repo_url)
+        depth = "basic" if args.basic else "full"
+        result = await analyze_repository_via_clone(args.repo_url, depth=depth)
         if args.json:
             print(json.dumps(result.model_dump(), indent=2, default=str))
         else:

@@ -78,6 +78,14 @@ def _prune_dir(name: str) -> bool:
         ".pytest_cache",
         "bower_components",
         "vendor",
+        "ui",
+        "public",
+        "static",
+        "assets",
+        "images",
+        "videos",
+        "frontend",
+        "client",
     }:
         return True
     if ln.startswith(".") and ln not in {".github"}:
