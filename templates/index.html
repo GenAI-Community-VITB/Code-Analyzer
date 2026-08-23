@@ -28,10 +28,16 @@
             <div class="input-col">
                 <span class="label">Input Prompt</span>
                 <textarea id="promptInput" placeholder="Paste your prompt text here for analysis..."></textarea>
-                <button id="analyzeBtn" onclick="analyzePrompt()">
-                    <span id="btnText">RUN ANALYSIS</span>
-                    <div class="spinner" id="btnSpinner"></div>
-                </button>
+                <div class="btn-row">
+                    <button id="analyzeBtn" onclick="analyzePrompt()">
+                        <span id="btnText">RUN ANALYSIS</span>
+                        <div class="spinner" id="btnSpinner"></div>
+                    </button>
+                    <button id="improveBtn" class="btn-secondary" onclick="improvePrompt()">
+                        <span id="improveBtnText">IMPROVE PROMPT</span>
+                        <div class="spinner" id="improveSpinner"></div>
+                    </button>
+                </div>
             </div>
 
             <div class="result-col">
@@ -63,7 +69,7 @@
         <div class="tech-specs">
             <div class="spec-box">
                 <div class="spec-title">Architecture</div>
-                <div class="spec-content">Multi-Stage Pipeline: Heuristic Filter → BERT Encoder (Structure) → Mistral-7B (Intent & Logic).</div>
+                <div class="spec-content">Multi-Stage Pipeline: Heuristic Filter → BERT Encoder (Structure) → Mistral API (Intent & Logic).</div>
             </div>
             <div class="spec-box">
                 <div class="spec-title">Methodology</div>

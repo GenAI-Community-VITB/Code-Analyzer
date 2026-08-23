@@ -8,17 +8,17 @@ function toggleTheme() {
     updateChartColor(target);
 }
 
-// Load saved theme immediately
 const savedTheme = localStorage.getItem('theme') || 'light';
 document.documentElement.setAttribute('data-theme', savedTheme);
 
-// --- CHART CONFIGURATION ---
-// We initialize Chart.js after the DOM is ready
 let scoreChart;
+let lastAnalysis = null;
+let trashThreshold = 50;
 
+// --- CHART CONFIGURATION ---
 document.addEventListener('DOMContentLoaded', function() {
     const ctx = document.getElementById('scoreChart').getContext('2d');
-    
+
     scoreChart = new Chart(ctx, {
         type: 'doughnut',
         data: {
@@ -38,7 +38,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Set initial chart colors based on theme
     updateChartColor(savedTheme);
 });
 
@@ -49,26 +48,49 @@ function updateChartColor(theme) {
     scoreChart.update();
 }
 
-// --- ANALYSIS LOGIC ---
-async function analyzePrompt() {
-    const input = document.getElementById('promptInput').value;
-    const btn = document.getElementById('analyzeBtn');
+function setLoading(analyzeLoading, improveLoading) {
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const improveBtn = document.getElementById('improveBtn');
     const btnText = document.getElementById('btnText');
-    const spinner = document.getElementById('btnSpinner');
-    const pill = document.getElementById('statusPill');
+    const btnSpinner = document.getElementById('btnSpinner');
+    const improveBtnText = document.getElementById('improveBtnText');
+    const improveSpinner = document.getElementById('improveSpinner');
 
-    // Basic Validation
-    if (!input.trim()) {
-        alert("Please enter a prompt first.");
+    analyzeBtn.disabled = analyzeLoading || improveLoading;
+    improveBtn.disabled = analyzeLoading || improveLoading;
+
+    btnText.style.display = analyzeLoading ? 'none' : 'block';
+    btnSpinner.style.display = analyzeLoading ? 'block' : 'none';
+    improveBtnText.style.display = improveLoading ? 'none' : 'block';
+    improveSpinner.style.display = improveLoading ? 'block' : 'none';
+}
+
+function updateImproveButton() {
+    const improveBtn = document.getElementById('improveBtn');
+    if (!lastAnalysis) {
+        improveBtn.title = 'Rewrite low-scoring prompts with Mistral';
         return;
     }
 
-    // UI Loading State
-    btn.disabled = true;
-    btnText.style.display = 'none';
-    spinner.style.display = 'block';
-    pill.textContent = "Processing...";
-    pill.style.color = "var(--text-secondary)";
+    const score = lastAnalysis.final_score || 0;
+    const canImprove = score < trashThreshold || lastAnalysis.status === 'REJECTED';
+    improveBtn.title = canImprove
+        ? `Score below ${trashThreshold} — rewrite with Mistral`
+        : `Score is above threshold (${trashThreshold}) — server will skip if not needed`;
+}
+
+async function analyzePrompt() {
+    const input = document.getElementById('promptInput').value;
+    const pill = document.getElementById('statusPill');
+
+    if (!input.trim()) {
+        alert('Please enter a prompt first.');
+        return;
+    }
+
+    setLoading(true, false);
+    pill.textContent = 'Processing...';
+    pill.style.color = 'var(--text-secondary)';
 
     try {
         const response = await fetch('/analyze', {
@@ -80,55 +102,135 @@ async function analyzePrompt() {
         const data = await response.json();
 
         if (data.error) {
-            pill.textContent = "Error: " + data.error;
-            pill.style.color = "var(--error-color)";
-        } else if (data.status === "REJECTED") {
-            updateResultUI(data.final_score, data.bert_score, 0, false);
-            pill.textContent = "Status: Rejected (Low Quality)";
-            pill.style.color = "var(--error-color)";
+            pill.textContent = 'Error: ' + data.error;
+            pill.style.color = 'var(--error-color)';
+            lastAnalysis = null;
         } else {
-            updateResultUI(data.final_score, data.bert_score, data.llm_score, true);
-            pill.textContent = "Status: Accepted";
-            pill.style.color = "var(--success-color)";
+            trashThreshold = data.threshold ?? trashThreshold;
+            lastAnalysis = data;
+
+            if (data.status === 'REJECTED') {
+                updateResultUI(data.final_score, data.bert_score, 0, false);
+                pill.textContent = data.msg || 'Status: Rejected (Low Quality)';
+                pill.style.color = 'var(--error-color)';
+            } else {
+                updateResultUI(data.final_score, data.bert_score, data.llm_score, true);
+                pill.textContent = 'Status: Accepted';
+                pill.style.color = 'var(--success-color)';
+            }
         }
 
+        updateImproveButton();
     } catch (err) {
         console.error(err);
-        pill.textContent = "System Error";
-        pill.style.color = "var(--error-color)";
+        pill.textContent = 'System Error';
+        pill.style.color = 'var(--error-color)';
     } finally {
-        btn.disabled = false;
-        btnText.style.display = 'block';
-        spinner.style.display = 'none';
+        setLoading(false, false);
+        updateImproveButton();
+    }
+}
+
+async function improvePrompt() {
+    const input = document.getElementById('promptInput').value;
+    const pill = document.getElementById('statusPill');
+
+    if (!input.trim()) {
+        alert('Please enter a prompt first.');
+        return;
+    }
+
+    setLoading(false, true);
+    pill.textContent = 'Improving prompt...';
+    pill.style.color = 'var(--text-secondary)';
+
+    try {
+        const response = await fetch('/improve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt: input,
+                known_score: lastAnalysis?.final_score ?? null,
+                known_status: lastAnalysis?.status ?? null,
+                known_bert: lastAnalysis?.bert_score ?? null,
+                known_llm: lastAnalysis?.llm_score ?? null
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+            pill.textContent = 'Error: ' + data.error;
+            pill.style.color = 'var(--error-color)';
+            return;
+        }
+
+        if (data.status === 'SKIPPED') {
+            pill.textContent = data.msg || 'Already above threshold';
+            pill.style.color = 'var(--warning-color)';
+            return;
+        }
+
+        document.getElementById('promptInput').value = data.improved;
+
+        const isSuccess = data.analysis_status === 'ACCEPTED';
+        updateResultUI(
+            data.final_score,
+            data.bert_score,
+            data.llm_score || 0,
+            isSuccess
+        );
+
+        lastAnalysis = {
+            final_score: data.final_score,
+            bert_score: data.bert_score,
+            llm_score: data.llm_score,
+            status: data.analysis_status || 'ACCEPTED',
+            threshold: data.threshold
+        };
+
+        if (data.status === 'IMPROVED') {
+            pill.textContent = `Improved · ${data.iterations} iteration${data.iterations === 1 ? '' : 's'} · ${data.original_score?.toFixed(1)} → ${data.final_score?.toFixed(1)}`;
+            pill.style.color = 'var(--success-color)';
+        } else {
+            pill.textContent = 'No improvement found';
+            pill.style.color = 'var(--warning-color)';
+        }
+
+        updateImproveButton();
+    } catch (err) {
+        console.error(err);
+        pill.textContent = 'System Error';
+        pill.style.color = 'var(--error-color)';
+    } finally {
+        setLoading(false, false);
+        updateImproveButton();
     }
 }
 
 function updateResultUI(final, bert, llm, isSuccess) {
-    // Determine Color
-    let color = '#ef4444'; // Red default
+    let color = '#ef4444';
     if (isSuccess) {
-        if (final > 75) color = '#10b981'; // Green
-        else if (final > 40) color = '#f59e0b'; // Orange
+        if (final > 75) color = '#10b981';
+        else if (final > 40) color = '#f59e0b';
     }
 
-    // Update Chart
     const theme = document.documentElement.getAttribute('data-theme');
     const emptyColor = theme === 'dark' ? '#334155' : '#e2e8f0';
-    
+
     scoreChart.data.datasets[0].backgroundColor = [color, emptyColor];
     scoreChart.data.datasets[0].data = [final, 100 - final];
     scoreChart.update();
 
-    // Update Text
-    animateValue("finalScore", 0, Math.round(final), 800);
+    animateValue('finalScore', 0, Math.round(final), 800);
     document.getElementById('bertScore').textContent = bert.toFixed(1);
-    document.getElementById('llmScore').textContent = llm ? llm.toFixed(1) : "N/A";
+    document.getElementById('llmScore').textContent = llm ? llm.toFixed(1) : 'N/A';
 }
 
 function animateValue(id, start, end, duration) {
     if (start === end) return;
     const range = end - start;
-    const stepTime = Math.abs(Math.floor(duration / range));
+    const stepTime = Math.abs(Math.floor(duration / range)) || 20;
     const obj = document.getElementById(id);
     let current = start;
     const timer = setInterval(function() {

@@ -1,5 +1,5 @@
 flask
 requests
-langchain-huggingface
-langchain-core
 langdetect
+python-dotenv
+colorlog
